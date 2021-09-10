@@ -10,28 +10,34 @@ import UIKit
 class CollectionViewController: UICollectionViewController, UICollectionViewDelegateFlowLayout {
     
     var employees = [Employee]()
+    var session = URLSession.shared
     override func viewDidLoad() {
         super.viewDidLoad()
         navigationController?.navigationBar.prefersLargeTitles = true
-        let urlString = "https://run.mocky.io/v3/1d1cb4ec-73db-4762-8c4b-0b8aa3cecd4c"
-        let defaults = UserDefaults.standard
-        guard let url = URL(string: urlString) else {
+        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(urlSession))
+        navigationItem.rightBarButtonItem?.isEnabled = false
+        guard let request = formRequest() else {
             return
         }
-        let cache = NSCache<NSString, CompanyData>()
-        if let cachedVersion = cache.object(forKey: "Cached") {
-            if let time = defaults.object(forKey: "Time") as? Date {
-                if time.timeIntervalSinceNow < 3600  {
-                    employees = cachedVersion.company.employees
-                    title = cachedVersion.company.name
-                }
-                else {
-                    urlSeccsion(url: url)
+        let defaults = UserDefaults.standard
+        let time = defaults.double(forKey: "Time")
+        if NSDate().timeIntervalSince1970 - time > 3600 {
+            session.configuration.urlCache?.removeAllCachedResponses()
+            //Чищу куки, потому что кэш сбрасывается только после перезагрузки после истечения времени
+            if let cookies = HTTPCookieStorage.shared.cookies {
+                for cookie in cookies {
+                    HTTPCookieStorage.shared.deleteCookie(cookie)
                 }
             }
+            defaults.removeObject(forKey: "Time")
+        }
+        if let cacheResponse = session.configuration.urlCache?.cachedResponse(for: request) {
+            parse(json: cacheResponse.data)
+            print("load from cache")
         }
         else {
-            urlSeccsion(url: url)
+            urlSession()
+            print("load from internet")
         }
     }
     
@@ -45,9 +51,9 @@ class CollectionViewController: UICollectionViewController, UICollectionViewDele
             fatalError("Unable to dequeue PersonCell.")
         }
         let employee = employees[indexPath.item]
-        cell.name.text! += employee.name
-        cell.number.text! += employee.phone_number
-        cell.skills.text! += employee.skills.joined(separator: ", ")
+        cell.name.text = "Name: " + employee.name
+        cell.number.text = "Number: " + employee.phone_number
+        cell.skills.text = "Skills: " + employee.skills.joined(separator: ", ")
         cell.layer.borderWidth = 1
         cell.layer.borderColor = UIColor.lightGray.cgColor
         cell.layer.cornerRadius = 10
@@ -64,14 +70,8 @@ class CollectionViewController: UICollectionViewController, UICollectionViewDele
         let decoder = JSONDecoder()
 
         if let jsonResults = try? decoder.decode(CompanyData.self, from: json) {
-            print(type(of: jsonResults))
             employees = jsonResults.company.employees
             employees.sort{$0.name < $1.name}
-            let cache = NSCache<NSString, CompanyData>()
-            cache.setObject(jsonResults, forKey: "Cached")
-            let defaults = UserDefaults.standard
-            let time = Date().timeIntervalSince1970
-            defaults.set(time, forKey: "Time")
             DispatchQueue.main.async {
                 self.title = jsonResults.company.name
                 self.collectionView.reloadData()
@@ -81,21 +81,43 @@ class CollectionViewController: UICollectionViewController, UICollectionViewDele
     func showErrorAlert() {
         let ac = UIAlertController(title: "Ошибка сети", message: "Произошла ошибка во время загрузки, попробуйте снова", preferredStyle: .alert)
         ac.addAction(UIAlertAction(title: "OK", style: .default))
+        ac.popoverPresentationController?.barButtonItem = navigationController?.navigationItem.rightBarButtonItem
         present(ac, animated: true)
     }
     
-    func urlSeccsion(url: URL){
-        URLSession.shared.dataTask(with: url) {data, response, error in
+    @objc func urlSession(){
+        employees.removeAll()
+        guard let request = formRequest() else {
+            return
+        }
+        let time = NSDate().timeIntervalSince1970
+        UserDefaults.standard.set(time, forKey: "Time")
+        session.dataTask(with: request) {data, response, error in
             guard error == nil else {
                 DispatchQueue.main.async {
                     self.title = "Try later"
+                    self.collectionView.reloadData()
+                    self.navigationItem.rightBarButtonItem?.isEnabled = true
                     self.showErrorAlert()
                 }
                 return
             }
             if let data = data {
-                self.parse(json: data)
+                DispatchQueue.main.async {self.navigationItem.rightBarButtonItem?.isEnabled = false}
+                DispatchQueue.global().async {
+                    self.parse(json: data)
+                }
              }
         }.resume()
+    }
+    
+    func formRequest()-> URLRequest? {
+        let urlString = "https://run.mocky.io/v3/1d1cb4ec-73db-4762-8c4b-0b8aa3cecd4c"
+        guard let url = URL(string: urlString) else {
+            return nil
+        }
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        return request
+        
     }
 }

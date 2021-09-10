@@ -89,6 +89,8 @@
 			dependencies = (
 			);
 			name = avito;
+			packageProductDependencies = (
+			);
 			productName = avito;
 			productReference = A81C126726EA9652003339CB /* avito.app */;
 			productType = "com.apple.product-type.application";
@@ -116,6 +118,8 @@
 				Base,
 			);
 			mainGroup = A81C125E26EA9652003339CB;
+			packageReferences = (
+			);
 			productRefGroup = A81C126826EA9652003339CB /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
